@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Venta de Garage Pancho</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Firebase App (Core) -->
+  <script type="module">
+    // These variables will be provided by the environment when deployed.
+    // For local testing, you might need to provide placeholder values or your own Firebase config.
+    const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : { apiKey: "YOUR_API_KEY", authDomain: "YOUR_AUTH_DOMAIN", projectId: "YOUR_PROJECT_ID", storageBucket: "YOUR_STORAGE_BUCKET", messagingSenderId: "YOUR_MESSAGING_SENDER_ID", appId: "YOUR_APP_ID" };
+    const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-garage-sale-app'; // Unique ID for this app instance
+
+    // Import Firebase modules
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, collection, doc, getDocs, setDoc, addDoc, updateDoc, onSnapshot, query, writeBatch, where, deleteDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js"; // For debugging
+
+    // Initialize Firebase
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const auth = getAuth(app);
+    setLogLevel('debug'); // Optional: for more detailed Firebase logs in console
+
+    // Expose Firebase and config to the main script
+    window.firebaseInstances = { 
+        db, 
+        auth, 
+        // Firestore functions
+        collection, doc, getDocs, setDoc, addDoc, updateDoc, onSnapshot, query, writeBatch, where, deleteDoc, serverTimestamp, 
+        // Auth functions
+        signInAnonymously, signInWithCustomToken, onAuthStateChanged,
+        appId 
+    };
+    window.firebaseAuthDetails = { initialAuthToken };
+
+  </script>
+  <style>
+    body { 
+      min-height: 100vh; 
+      display: flex; 
+      flex-direction: column; 
+      color: #fff; 
+      background: linear-gradient(135deg,#1e1b4b 0%,#171717 50%,#000 100%); 
+      font-family: 'Inter', sans-serif; 
+    }
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 4px; }
+    ::-webkit-scrollbar-track { background: #1f2937; }
+    #adminPanel { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); justify-content: center; align-items: center; z-index: 1000; padding: 1rem; }
+    #adminPanel.flex { display: flex; }
+    #adminPanel .panel-content { background: #111827; padding: 1.5rem; border-radius: 0.75rem; max-height: 90vh; overflow-y: auto; width: 100%; max-width: 600px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+    #adminPanel label { display: block; margin-top: 0.75rem; font-size: 0.875rem; color: #9ca3af; margin-bottom: 0.25rem; }
+    #adminPanel input[type=text], #adminPanel input[type=url], #adminPanel input[type=checkbox], #adminPanel select { margin-top: 0.1rem; }
+    #adminPanel button.close-btn { position: absolute; top: 0.75rem; right: 0.75rem; background: #be123c; padding: 0.5rem 0.75rem; border: none; border-radius: 0.375rem; color: #fff; cursor: pointer; transition: background-color 0.2s; }
+    #adminPanel button.close-btn:hover { background: #9f1239; }
+    .product-card-container.product-sold { opacity: 0.65; position: relative; }
+    .product-sold h3, .product-sold [data-price-original] { text-decoration: line-through; text-decoration-color: #e11d48; text-decoration-thickness: 2px; }
+    .product-sold::after { content: 'VENDIDO'; position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%) rotate(-15deg); background-color: rgba(225, 29, 72, 0.9); color: white; padding: 0.5rem 1rem; border-radius: 0.375rem; font-weight: bold; font-size: 1.25rem; z-index: 10; border: 2px solid white; box-shadow: 0 4px 10px rgba(0,0,0,0.5); text-align: center; line-height: 1.2; }
+    .product-sold [data-fblink] { display: none; }
+    #customAlert { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.7); z-index: 2000; justify-content: center; align-items: center; }
+    #customAlert .alert-content { background-color: #1f2937; padding: 2rem; border-radius: 0.5rem; text-align: center; box-shadow: 0 5px 15px rgba(0,0,0,0.3); width: 90%; max-width: 400px; }
+    #customAlert p { margin-bottom: 1rem; font-size: 1.125rem; color: #e5e7eb; }
+    #customAlert button { background-color: #10b981; color: white; padding: 0.6rem 1.2rem; border: none; border-radius: 0.375rem; cursor: pointer; transition: background-color 0.2s; }
+    #customAlert button:hover { background-color: #059669; }
+    [data-img] { aspect-ratio: 16 / 9; object-fit: cover; }
+    #passwordModal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.75); z-index: 1500; justify-content: center; align-items: center; }
+    #passwordModal .modal-content { background-color: #111827; padding: 2rem; border-radius: 0.75rem; box-shadow: 0 10px 25px rgba(0,0,0,0.5); width: 90%; max-width: 380px; text-align: center; }
+    #passwordModal h3 { font-size: 1.25rem; color: #e5e7eb; margin-bottom: 1rem; }
+    #passwordModal label { margin-bottom: 0.5rem; text-align: left; }
+    #passwordModal input[type="password"] { width: 100%; padding: 0.75rem; background-color: #1f2937; color: #e5e7eb; border: 1px solid #374151; border-radius: 0.375rem; margin-bottom: 1.5rem; box-sizing: border-box; }
+    #passwordModal .modal-buttons { display: flex; justify-content: space-between; gap: 0.75rem; }
+    #passwordModal button { flex-grow: 1; padding: 0.6rem 1rem; border: none; border-radius: 0.375rem; cursor: pointer; transition: background-color 0.2s; font-weight: 500; }
+    #passwordModal button.submit-btn { background-color: #10b981; color: white; }
+    #passwordModal button.submit-btn:hover { background-color: #059669; }
+    #passwordModal button.cancel-btn { background-color: #4b5563; color: white; }
+    #passwordModal button.cancel-btn:hover { background-color: #374151; }
+    .admin-input { width: 100%; padding: 0.5rem; background-color: #374151; color: #e5e7eb; border: 1px solid #4b5563; border-radius: 0.375rem; box-sizing: border-box; font-size: 0.875rem; }
+    .admin-input:focus { outline: none; border-color: #10b981; box-shadow: 0 0 0 2px #059669; }
+    #whatsapp-float { position: fixed; width: 60px; height: 60px; bottom: 25px; right: 25px; background-color: #25D366; color: #FFF; border-radius: 50%; text-align: center; box-shadow: 2px 2px 8px rgba(0, 0, 0, 0.3); z-index: 999; display: flex; align-items: center; justify-content: center; text-decoration: none; transition: transform 0.2s ease-in-out, background-color 0.2s; }
+    #whatsapp-float:hover { transform: scale(1.1); background-color: #1DA851; }
+    #whatsapp-float svg { width: 32px; height: 32px; fill: white; }
+    #loadingIndicator { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.7); z-index: 3000; justify-content: center; align-items: center; color: white; font-size: 1.5rem; }
+  </style>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div id="loadingIndicator">Cargando datos...</div>
+
+  <header class="sticky top-0 z-50 backdrop-blur-md bg-black/50 border-b border-white/10 shadow-lg">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
+      <h1 class="text-xl sm:text-2xl font-bold tracking-tight text-emerald-400">Venta de Garage Pancho</h1>
+      <button id="adminBtn" class="bg-emerald-600 hover:bg-emerald-500 transition-colors duration-200 px-4 py-2 rounded-md text-sm font-medium shadow-md hover:shadow-lg">Admin</button>
+    </div>
+  </header>
+
+  <div id="customAlert"><div class="alert-content"><p id="customAlertMessage"></p><button id="customAlertClose">Entendido</button></div></div>
+  <div id="passwordModal"><div class="modal-content"><h3>Acceso de Administrador</h3><label for="adminPasswordInput">Contraseña:</label><input type="password" id="adminPasswordInput" name="adminPassword"><div class="modal-buttons"><button type="button" id="submitPasswordBtn" class="submit-btn">Ingresar</button><button type="button" id="cancelPasswordBtn" class="cancel-btn">Cancelar</button></div></div></div>
+
+  <div id="adminPanel">
+    <div class="panel-content relative">
+      <button class="close-btn" id="closeAdmin" aria-label="Cerrar panel de administración">&times;</button>
+      <div class="mb-8 pb-6 border-b border-gray-700">
+        <button type="button" id="toggleAddProductFormBtn" class="w-full bg-sky-600 hover:bg-sky-500 text-white font-semibold py-2.5 px-4 rounded-md transition-colors duration-200">Agregar Nuevo Producto</button>
+        <div id="addProductFormContainer" class="hidden mt-4 p-4 border border-gray-600 rounded-md bg-gray-800/50">
+            <h3 class="text-lg font-semibold text-sky-400 mb-4">Detalles del Nuevo Producto</h3>
+            <form id="newProductForm" class="space-y-3">
+                <div><label for="newProductName">Nombre del Producto:</label><input type="text" id="newProductName" name="newProductName" required class="admin-input"></div>
+                <div><label for="newProductPrice">Precio (ej: $15.000):</label><input type="text" id="newProductPrice" name="newProductPrice" required class="admin-input"></div>
+                <div><label for="newProductImageURL">URL de la Imagen:</label><input type="url" id="newProductImageURL" name="newProductImageURL" required class="admin-input" placeholder="https://ejemplo.com/imagen.jpg"></div>
+                <div><label for="newProductFacebookURL">URL de Facebook Marketplace:</label><input type="url" id="newProductFacebookURL" name="newProductFacebookURL" required class="admin-input" placeholder="https://facebook.com/marketplace/item/..."></div>
+                <div><label for="newProductCategorySelect">Categoría Existente:</label><select id="newProductCategorySelect" name="newProductCategorySelect" class="admin-input"></select></div>
+                <div><label for="newProductCategoryInput">O Escriba Nueva Categoría (opcional):</label><input type="text" id="newProductCategoryInput" name="newProductCategoryInput" class="admin-input" placeholder="Ej: Electrónica"></div>
+                <button type="submit" class="mt-5 w-full bg-green-600 hover:bg-green-500 text-white font-semibold py-2.5 px-4 rounded-md transition-colors duration-200">Guardar Nuevo Producto</button>
+            </form>
+        </div>
+      </div>
+      <h2 class="text-xl font-semibold mb-4 text-emerald-400">Editar Productos Existentes</h2>
+      <form id="adminForm"><div id="adminFields" class="space-y-4"></div><button type="submit" class="mt-6 w-full bg-emerald-600 hover:bg-emerald-500 transition-colors duration-200 px-4 py-2.5 rounded-md font-semibold">Guardar Cambios Edición</button></form>
+    </div>
+  </div>
+
+  <section class="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 pt-6 pb-4">
+    <div class="flex items-center justify-between flex-wrap gap-2">
+      <div id="categoryPills" class="flex flex-wrap gap-2 sm:gap-3"></div>
+      <div>
+        <label for="sortSelect" class="sr-only">Ordenar</label>
+        <select id="sortSelect" class="bg-gray-700/50 text-gray-200 text-sm rounded-md px-3 py-2">
+          <option value="default">Orden por defecto</option>
+          <option value="price-asc">Precio: Bajo a Alto</option>
+          <option value="price-desc">Precio: Alto a Bajo</option>
+          <option value="name">Nombre</option>
+        </select>
+      </div>
+    </div>
+  </section>
+  <main class="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 pb-12 flex-grow"><div id="productGrid" class="grid gap-5 sm:gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"></div></main>
+  <footer class="bg-black/30 border-t border-white/10 mt-auto"><div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 text-center text-xs text-gray-400">&copy; <span id="currentYear"></span> Venta de Garage Pancho. Todos los derechos reservados.</div></footer>
+  <a href="https://wa.me/56978071450?text=Hola%2C%20estoy%20interesado%20en%20un%20producto%20de%20tu%20Venta%20de%20Garage%20Pancho" id="whatsapp-float" target="_blank" rel="noopener noreferrer" aria-label="Contactar por WhatsApp"><svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" role="img" focusable="false"><path d=" M19.11 17.205c-.372 0-1.088 1.39-1.518 1.39a.63.63 0 0 1-.315-.1c-.802-.402-1.504-.817-2.163-1.447-.545-.516-1.146-1.29-1.46-1.963a.426.426 0 0 1-.073-.215c0-.33.99-.945.99-1.49 0-.143-.73-2.09-.832-2.335-.143-.372-.214-.487-.6-.487-.187 0-.36-.044-.53-.044a.765.765 0 0 0-.51.235c-.438.472-1.03 1.138-1.03 2.334 0 1.225.775 2.32 1.665 3.125 1.12 1.002 2.35 2.23 3.807 3.185.682.448 1.15.708 1.819.926.69.217 1.226.217 1.605.06.71-.297 1.17-.978 1.34-.978.066-.004.438 0 .746.158.307.157.925.717.925 1.291 0 .33-.044.448-.157.448-.114.004-.289-.044-.616-.235z M16 4A12 12 0 1 0 16 28 12 12 0 0 0 16 4zM1.023 16a14.977 14.977 0 0 1 14.977-14.977A14.977 14.977 0 0 1 30.977 16c0 8.284-6.693 14.977-14.977 14.977A14.977 14.977 0 0 1 1.023 16z"></path></svg></a>
+
+  <template id="cardTpl"><div class="product-card-container bg-gray-900/70 border border-gray-700/50 rounded-xl shadow-xl backdrop-blur-sm flex flex-col p-4 hover:ring-2 hover:ring-emerald-500 transition-all duration-200 ease-in-out transform hover:scale-[1.02]"><div class="w-full h-48 overflow-hidden rounded-lg mb-4 relative"><img data-img src="https://placehold.co/600x400/1f2937/34d399?text=Cargando..." alt="Producto" class="w-full h-full object-cover" loading="lazy" onerror="this.onerror=null;this.src='https://placehold.co/600x400/111827/9ca3af?text=Error+Imagen';"></div><h3 class="font-semibold text-md sm:text-lg leading-tight text-gray-100 mb-1 flex-grow"></h3><p data-price class="text-sm font-light mt-1 text-emerald-400 mb-3"><span data-price-original></span></p><a data-fblink target="_blank" rel="noopener noreferrer" class="block w-full text-center bg-blue-600 hover:bg-blue-500 transition-colors duration-200 px-3 py-2 text-sm rounded-md font-medium">Ver en Facebook</a></div></template>
+
+  <script type="module">
+    // This script block will handle the main application logic
+    // It runs after the Firebase SDKs are loaded and initialized from the script block in <head>
+    
+    // Access Firebase instances exposed from the head script
+    const { 
+        db, auth, 
+        collection, doc, getDocs, setDoc, addDoc, updateDoc, onSnapshot, query, writeBatch, where, deleteDoc, serverTimestamp, 
+        signInAnonymously, signInWithCustomToken, onAuthStateChanged, // Explicitly get auth functions
+        appId 
+    } = window.firebaseInstances;
+    const { initialAuthToken } = window.firebaseAuthDetails;
+    let userId = null; // Will be set after authentication
+
+    // DOM Element selections
+    const grid = document.getElementById('productGrid');
+    const tpl = document.getElementById('cardTpl');
+    const pillBox = document.getElementById('categoryPills');
+    const adminPanel = document.getElementById('adminPanel');
+    const closeAdminBtn = document.getElementById('closeAdmin');
+    const adminFields = document.getElementById('adminFields');
+    const adminForm = document.getElementById('adminForm');
+    const adminBtn = document.getElementById('adminBtn');
+    const customAlert = document.getElementById('customAlert');
+    const customAlertMessage = document.getElementById('customAlertMessage');
+    const customAlertCloseBtn = document.getElementById('customAlertClose');
+    const sortSelect = document.getElementById('sortSelect');
+    const passwordModal = document.getElementById('passwordModal');
+    const adminPasswordInput = document.getElementById('adminPasswordInput');
+    const submitPasswordBtn = document.getElementById('submitPasswordBtn');
+    const cancelPasswordBtn = document.getElementById('cancelPasswordBtn');
+    const toggleAddProductFormBtn = document.getElementById('toggleAddProductFormBtn');
+    const addProductFormContainer = document.getElementById('addProductFormContainer');
+    const newProductForm = document.getElementById('newProductForm');
+    const newProductCategorySelect = document.getElementById('newProductCategorySelect'); 
+    const newProductCategoryInput = document.getElementById('newProductCategoryInput'); 
+    const loadingIndicator = document.getElementById('loadingIndicator');
+
+    if(document.getElementById('currentYear')) {
+      document.getElementById('currentYear').textContent = new Date().getFullYear();
+    }
+
+    function showLoading(show) {
+        if (loadingIndicator) loadingIndicator.style.display = show ? 'flex' : 'none';
+    }
+
+    function showAlert(message) {
+      if (customAlertMessage && customAlert) {
+        customAlertMessage.textContent = message;
+        customAlert.style.display = 'flex';
+      } else { alert(message); }
+    }
+
+    if (customAlertCloseBtn) {
+      customAlertCloseBtn.addEventListener('click', () => {
+        if (customAlert) customAlert.style.display = 'none';
+      });
+    }
+    
+    // --- Global App State ---
+    let allProducts = [];
+    let categories = {};
+    let currentViewList = [];
+    let currentCategoryName = 'Todo';
+    let currentSortOption = 'default';
+    let unsubscribeProducts = null;
+
+    // --- Initial Product Data (for seeding if Firestore is empty) ---
+    const initialRawData = { 
+      "Audiovisual": [
+        { "id": "av1", "nombre": "Micrófono Samson C03U USB", "facebook_url": "https://www.facebook.com/marketplace/item/1371331290762030/", "img": "https://raw.githubusercontent.com/PanchoGomezC/venta-productos/b17324304ddef756e40a5d996a129adfb00cebe8/SAMSON%202.jpg", "precio": "$30.000", "vendido": false, "category": "Audiovisual" },
+        { "id": "av2", "nombre": "Boya BY-M4C | Micrófono Lavalier Cardioide XLR", "facebook_url": "https://www.facebook.com/marketplace/item/1214618080368713/", "img": "https://raw.githubusercontent.com/PanchoGomezC/venta-productos/refs/heads/main/BOYA%201.jpg", "precio": "$20.000", "vendido": false, "category": "Audiovisual" },
+        { "id": "av3", "nombre": "TASCAM DR-40 – Grabadora Portátil Profesional de 4 Canales", "facebook_url": "https://www.facebook.com/marketplace/item/1871498746946182/", "img": "https://raw.githubusercontent.com/PanchoGomezC/venta-productos/refs/heads/main/IMG_6703.jpg", "precio": "$125.000", "vendido": false, "category": "Audiovisual" },
+        { "id": "av4", "nombre": "TC Electronic Ditto Looper", "facebook_url": "https://www.facebook.com/marketplace/item/1235086854937634/", "img": "https://raw.githubusercontent.com/PanchoGomezC/venta-productos/refs/heads/main/DITTO%20LOOPER%201.jpg", "precio": "$69.000", "vendido": false, "category": "Audiovisual" },
+        { "id": "av5", "nombre": "Behringer MicroAMP HA400 – Amplificador de Audífonos 4 Canales", "facebook_url": "https://www.facebook.com/marketplace/item/1132156465345388/", "img": "https://raw.githubusercontent.com/PanchoGomezC/venta-productos/refs/heads/main/AMP%20AUDIFONOS%203.jpg", "precio": "$23.000", "vendido": false, "category": "Audiovisual" },
+        { "id": "av6", "nombre": "UN LUJO! Audífonos In-Ear FiiO FA7 – Monitores Hi-Fi | Excelente Estado", "facebook_url": "https://www.facebook.com/marketplace/item/1194552855165198/", "img": "https://raw.githubusercontent.com/PanchoGomezC/venta-productos/refs/heads/main/FIIO%202.jpg", "precio": "$138.000", "vendido": false, "category": "Audiovisual" },
+        { "id": "av7", "nombre": "REGALADO! Zoom Livetrak L-20 + Bolso Original Zoom – Estudio portátil pro", "facebook_url": "https://www.facebook.com/marketplace/item/619816967771282/", "img": "https://raw.githubusercontent.com/PanchoGomezC/venta-productos/refs/heads/main/ZOOM%20L20%207.jpg", "precio": "$855.000", "vendido": false, "category": "Audiovisual" },
+        { "id": "av8", "nombre": "Audix F6 | Tom o Timbal", "facebook_url": "https://www.facebook.com/marketplace/item/3527842967510488/", "img": "https://raw.githubusercontent.com/PanchoGomezC/venta-productos/refs/heads/main/AUDIX%20F6.jpg", "precio": "$44.000", "vendido": false, "category": "Audiovisual" },
+        { "id": "av9", "nombre": "Sennheiser e906 | Plano al gabinete", "facebook_url": "https://www.facebook.com/marketplace/item/662724006628943/", "img": "https://raw.githubusercontent.com/PanchoGomezC/venta-productos/refs/heads/main/SENNHEISER%20E906.jpg", "precio": "$190.000", "vendido": false, "category": "Audiovisual" },
+        { "id": "av10", "nombre": "Sennheiser e945 | Dinámico robusto ideal para escenarios ruidosos", "facebook_url": "https://www.facebook.com/marketplace/item/699045326012339/", "img": "https://raw.githubusercontent.com/PanchoGomezC/venta-productos/refs/heads/main/SENNHEISER%20E945%203.jpg", "precio": "$183.000", "vendido": false, "category": "Audiovisual" },
+        { "id": "av11", "nombre": "Shure PG56 | Ideal para toms", "facebook_url": "https://www.facebook.com/marketplace/item/638508722483103/", "img": "https://raw.githubusercontent.com/PanchoGomezC/venta-productos/refs/heads/main/SHURE%20PG56.jpg", "precio": "$48.900", "vendido": false, "category": "Audiovisual" },
+        { "id": "av12", "nombre": "Un lujo: Sennheiser e865 | Condensador de mano", "facebook_url": "https://www.facebook.com/marketplace/item/1033388878888275/", "img": "https://raw.githubusercontent.com/PanchoGomezC/venta-productos/refs/heads/main/SENNHEISER%20865%20.jpg", "precio": "$275.000", "vendido": false, "category": "Audiovisual" },
+        { "id": "av13", "nombre": "PEDAL Joyo Tremolo JF-09 – true bypass, funcionamiento perfecto", "facebook_url": "https://www.facebook.com/marketplace/item/998238672441872/", "img": "https://raw.githubusercontent.com/PanchoGomezC/venta-productos/refs/heads/main/TREMOLO%20JOYO.jpg", "precio": "$23.000", "vendido": false, "category": "Audiovisual" },
+        { "id": "av14", "nombre": "Amplificador Fender Blues Junior IV IMPECABLE", "facebook_url": "https://www.facebook.com/marketplace/item/1031803055126771/", "img": "https://raw.githubusercontent.com/PanchoGomezC/venta-productos/refs/heads/main/AMP%20FENDER%20BLUES%20JUNIOR%20IV%205.jpg", "precio": "$749.000", "vendido": false, "category": "Audiovisual" },
+        { "id": "av15", "nombre": "Estabilizador manual INNOREL SP70 (60 cm) con maleta y contrapesos.", "facebook_url": "https://www.facebook.com/marketplace/item/1607335033274856/", "img": "https://raw.githubusercontent.com/PanchoGomezC/venta-productos/refs/heads/main/INNOREL%201.jpg", "precio": "$25.000", "vendido": false, "category": "Audiovisual" }
+      ],
+      "Cocina": [
+        { "id": "co1", "nombre": "Congelador Dual Maigas HS-185C 142L – Freezer o Conservadora, Impecable Estado", "facebook_url": "https://www.facebook.com/marketplace/item/721425120328221/", "img": "https://raw.githubusercontent.com/PanchoGomezC/venta-productos/refs/heads/main/REFRIGERADOR%20MAIGAS%208.jpg", "precio": "$115.000", "vendido": false, "category": "Cocina" },
+        { "id": "co2", "nombre": "Cooler Volcano RH 65L – Hielera Premium, Impecable Estado", "facebook_url": "https://www.facebook.com/marketplace/item/675904852000393/", "img": "https://raw.githubusercontent.com/PanchoGomezC/venta-productos/refs/heads/main/COOLER%20VOLCANO%209.jpg", "precio": "$95.000", "vendido": false, "category": "Cocina" },
+        { "id": "co3", "nombre": "Selladora al Vacío Valley Sportsman | Pro, Inox, Impecable Usada como nueva", "facebook_url": "https://www.facebook.com/marketplace/item/678873558224097/", "img": "https://raw.githubusercontent.com/PanchoGomezC/venta-productos/refs/heads/main/SELLADORA%203%20.jpg", "precio": "$210.000", "vendido": false, "category": "Cocina" },
+        { "id": "co4", "nombre": "Cajas fermentadora 60x40x10 PIZZAS", "facebook_url": "https://www.facebook.com/marketplace/item/649781097844164/", "img": "https://raw.githubusercontent.com/PanchoGomezC/venta-productos/refs/heads/main/CAJA%20FERMENTADORA%202.jpg", "precio": "$15.000", "vendido": false, "category": "Cocina" }
+      ]
+    };
+
+    const productsCollectionPath = `/artifacts/${appId}/public/data/products`;
+
+    async function initializeAuthAndData() {
+        showLoading(true);
+        try {
+            if (typeof signInWithCustomToken !== 'function' || typeof signInAnonymously !== 'function') {
+                console.error("Firebase auth functions (signInWithCustomToken, signInAnonymously) are not defined correctly.");
+                showAlert("Error crítico de inicialización. Intente recargar.");
+                showLoading(false);
+                return;
+            }
+
+            if (initialAuthToken) {
+                await signInWithCustomToken(auth, initialAuthToken);
+                console.log("Signed in with custom token.");
+            } else {
+                await signInAnonymously(auth);
+                console.log("Signed in anonymously.");
+            }
+        } catch (error) {
+            console.error("Firebase Authentication Error:", error);
+            showAlert("Error de autenticación. Algunas funciones pueden no estar disponibles.");
+            showLoading(false); 
+            return; 
+        }
+
+        if (typeof onAuthStateChanged !== 'function') {
+            console.error("Firebase onAuthStateChanged function is not defined correctly.");
+            showAlert("Error crítico de inicialización (auth state). Intente recargar.");
+            showLoading(false);
+            return;
+        }
+
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                userId = user.uid;
+                console.log("User authenticated, UID:", userId);
+                if (unsubscribeProducts) unsubscribeProducts(); 
+                setupProductListener(); 
+            } else {
+                userId = null;
+                console.log("User is signed out.");
+                if (unsubscribeProducts) unsubscribeProducts();
+                allProducts = [];
+                categories = {};
+                renderProducts([]);
+                buildPills();
+                showLoading(false);
+            }
+        });
+    }
+
+    async function seedInitialData() {
+        console.log("Checking if initial data seeding is needed...");
+        const productsRef = collection(db, productsCollectionPath);
+        const q = query(productsRef); 
+        const snapshot = await getDocs(q);
+
+        if (snapshot.empty) {
+            console.log("Firestore 'products' collection is empty. Seeding initial data...");
+            showAlert("Base de datos vacía. Cargando lista completa de productos iniciales...");
+            const batch = writeBatch(db);
+            let productsToSeedCount = 0;
+            
+            Object.keys(initialRawData).forEach(categoryName => {
+                initialRawData[categoryName].forEach(product => {
+                    // Ensure product has 'category' field; it should already from initialRawData structure
+                    const productWithCategory = { ...product, category: categoryName, createdAt: serverTimestamp() };
+                    // Use product.id as Firestore document ID for consistency if they are unique
+                    // If product.id might not be unique across all categories, let Firestore auto-generate ID by using addDoc
+                    // For this setup, we assume product.id from initialRawData can be used as doc ID.
+                    const productRef = doc(db, productsCollectionPath, product.id); 
+                    batch.set(productRef, productWithCategory);
+                    productsToSeedCount++;
+                });
+            });
+            
+            console.log(`Attempting to seed ${productsToSeedCount} products.`);
+            await batch.commit();
+            console.log("Initial data (full list) seeded successfully.");
+            showAlert("Lista completa de productos iniciales cargada en la base de datos.");
+        } else {
+            console.log("Firestore 'products' collection already has data. No seeding needed.");
+        }
+    }
+    
+    function setupProductListener() {
+        showLoading(true);
+        const productsRef = collection(db, productsCollectionPath);
+        const q = query(productsRef); 
+
+        unsubscribeProducts = onSnapshot(q, async (querySnapshot) => {
+            console.log("Received product data update from Firestore.");
+            if (querySnapshot.empty && allProducts.length === 0) { 
+                await seedInitialData(); 
+                return; 
+            }
+            
+            const fetchedProducts = [];
+            querySnapshot.forEach((doc) => {
+                fetchedProducts.push({ firestoreId: doc.id, ...doc.data() });
+            });
+            allProducts = fetchedProducts;
+            processProducts(); 
+            showLoading(false);
+        }, (error) => {
+            console.error("Error fetching products from Firestore: ", error);
+            showAlert("Error al cargar productos desde la base de datos.");
+            showLoading(false);
+        });
+    }
+
+    function processProducts() {
+        categories = {}; 
+        allProducts.forEach(p => {
+            // Ensure category field exists, default to 'General' if not (should not happen with proper seeding)
+            const productCategory = p.category || 'General'; 
+            if (!categories[productCategory]) {
+                categories[productCategory] = [];
+            }
+            categories[productCategory].push(p);
+        });
+
+        if (currentCategoryName === 'Todo') {
+            currentViewList = [...allProducts];
+        } else if (categories[currentCategoryName]) {
+            currentViewList = [...categories[currentCategoryName]];
+        } else { 
+            currentCategoryName = 'Todo';
+            currentViewList = [...allProducts];
+        }
+        
+        renderProducts(currentViewList);
+        buildPills(); 
+        if (adminPanel.classList.contains('flex')) {
+            generateAdminFields();
+            if (newProductCategorySelect) populateCategorySelect(newProductCategorySelect);
+        }
+    }
+
+    function parsePrice(str) {
+        if (!str) return 0;
+        const num = parseFloat(str.replace(/[^0-9,.-]/g, '').replace(/\./g, '').replace(',', '.'));
+        return isNaN(num) ? 0 : num;
+    }
+
+    function sortProducts(list) {
+        const arr = [...list];
+        switch (currentSortOption) {
+            case 'price-asc':
+                arr.sort((a, b) => parsePrice(a.precio) - parsePrice(b.precio));
+                break;
+            case 'price-desc':
+                arr.sort((a, b) => parsePrice(b.precio) - parsePrice(a.precio));
+                break;
+            case 'name':
+                arr.sort((a, b) => a.nombre.localeCompare(b.nombre));
+                break;
+            default:
+                arr.sort((a, b) => (a.vendido ? 1 : 0) - (b.vendido ? 1 : 0) || (a.createdAt && b.createdAt && b.createdAt.seconds && a.createdAt.seconds ? b.createdAt.seconds - a.createdAt.seconds : 0));
+        }
+        return arr;
+    }
+
+    function renderProducts(list) {
+        if (!grid || !tpl) return;
+        grid.innerHTML = '';
+        if (!list || list.length === 0) {
+            grid.innerHTML = '<p class="col-span-full text-center text-gray-400 py-10">No hay productos para mostrar.</p>';
+            return;
+        }
+        const sortedList = sortProducts(list);
+        
+        sortedList.forEach(p => {
+          if (!tpl.content) return;
+          const cardContent = tpl.content.cloneNode(true);
+          const cardElement = cardContent.querySelector('.product-card-container');
+          if (!cardElement) return;
+          cardElement.querySelector('h3').textContent = p.nombre;
+          cardElement.querySelector('[data-price-original]').textContent = p.precio;
+          cardElement.querySelector('[data-fblink]').href = p.facebook_url;
+          const imgElement = cardElement.querySelector('[data-img]');
+          imgElement.src = p.img;
+          imgElement.alt = p.nombre; 
+          cardElement.dataset.productId = p.firestoreId; 
+          
+          const fbLink = cardElement.querySelector('[data-fblink]');
+          if (p.vendido) {
+            cardElement.classList.add('product-sold');
+            if(fbLink) fbLink.style.display = 'none';
+          } else {
+            cardElement.classList.remove('product-sold');
+            if(fbLink) fbLink.style.display = 'block';
+          }
+          grid.appendChild(cardContent);
+        });
+    }
+
+    function setActivePill(clickedBtn) {
+        if (!pillBox) return;
+        pillBox.querySelectorAll('button').forEach(btn => {
+            btn.className = 'px-3 py-1.5 rounded-full bg-gray-700/50 hover:bg-gray-600/70 transition-colors duration-200 text-sm text-gray-300';
+        });
+        clickedBtn.className = 'px-3 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-500 transition-colors duration-200 text-sm text-white font-medium shadow-md';
+    }
+
+    function buildPills() {
+        if (!pillBox) return;
+        pillBox.innerHTML = ''; 
+        const allBtn = document.createElement('button');
+        allBtn.textContent = 'Todo';
+        allBtn.addEventListener('click', () => {
+          currentCategoryName = 'Todo';
+          currentViewList = [...allProducts];
+          renderProducts(currentViewList);
+          setActivePill(allBtn);
+        });
+        pillBox.appendChild(allBtn);
+
+        Object.keys(categories).sort().forEach(cat => { 
+          const btn = document.createElement('button');
+          btn.textContent = cat;
+          btn.addEventListener('click', () => {
+            currentCategoryName = cat;
+            currentViewList = categories[cat] ? [...categories[cat]] : [];
+            renderProducts(currentViewList);
+            setActivePill(btn);
+          });
+          pillBox.appendChild(btn);
+        });
+        
+        const activePillButton = Array.from(pillBox.querySelectorAll('button')).find(btn => btn.textContent === currentCategoryName);
+        if (activePillButton) {
+            setActivePill(activePillButton);
+        } else if (pillBox.querySelector('button')) { 
+            setActivePill(pillBox.querySelector('button'));
+        }
+    }
+    
+    function populateCategorySelect(selectElement) {
+        if (!selectElement || !categories) return;
+        const currentCategoryValue = selectElement.value; 
+        selectElement.innerHTML = '<option value="">-- Seleccione Categoría Existente --</option>'; 
+        Object.keys(categories).sort().forEach(categoryName => {
+            const option = document.createElement('option');
+            option.value = categoryName;
+            option.textContent = categoryName;
+            selectElement.appendChild(option);
+        });
+        if (currentCategoryValue) selectElement.value = currentCategoryValue; 
+    }
+
+    function openAdminPanelWithPassword() {
+        if (!userId) {
+            showAlert("Aún conectando a la base de datos. Por favor, intente en unos segundos.");
+            return;
+        }
+        if (passwordModal) {
+            passwordModal.style.display = 'flex';
+            if(adminPasswordInput) adminPasswordInput.value = ''; 
+            if(adminPasswordInput) adminPasswordInput.focus(); 
+        } else {
+            const pwd = prompt('Modal no encontrado. Ingrese contraseña de admin:');
+            handlePasswordSubmission(pwd);
+        }
+    }
+    
+    function handlePasswordSubmission(password) {
+        if (password === 'pancho6315') {
+          if (passwordModal) passwordModal.style.display = 'none'; 
+          if (adminPanel) {
+            generateAdminFields(); 
+            if (newProductCategorySelect) populateCategorySelect(newProductCategorySelect);
+            adminPanel.classList.add('flex'); 
+            document.body.style.overflow = 'hidden'; 
+          }
+        } else {
+          showAlert('Contraseña incorrecta.');
+          if(adminPasswordInput) adminPasswordInput.focus(); 
+        }
+    }
+
+    if(submitPasswordBtn && adminPasswordInput) {
+      submitPasswordBtn.addEventListener('click', () => handlePasswordSubmission(adminPasswordInput.value));
+      adminPasswordInput.addEventListener('keypress', (event) => {
+          if (event.key === 'Enter') { event.preventDefault(); handlePasswordSubmission(adminPasswordInput.value); }
+      });
+    }
+    if(cancelPasswordBtn && passwordModal) {
+      cancelPasswordBtn.addEventListener('click', () => passwordModal.style.display = 'none');
+    }
+
+    function closeAdminPanel() {
+      if (adminPanel) adminPanel.classList.remove('flex');
+      if (addProductFormContainer) addProductFormContainer.classList.add('hidden'); 
+      document.body.style.overflow = ''; 
+    }
+
+    function generateAdminFields() {
+        if (!adminFields || !categories) return;
+        adminFields.innerHTML = ''; 
+        Object.keys(categories).sort().forEach(cat => { 
+          const catHeader = document.createElement('h3');
+          catHeader.textContent = cat;
+          catHeader.className = 'mt-3 mb-2 text-lg font-semibold text-emerald-400 border-b border-gray-700 pb-1';
+          adminFields.appendChild(catHeader);
+          if (!categories[cat] || categories[cat].length === 0) {
+            const noProductsMsg = document.createElement('p');
+            noProductsMsg.textContent = 'No hay productos en esta categoría.';
+            noProductsMsg.className = 'text-sm text-gray-500 italic';
+            adminFields.appendChild(noProductsMsg);
+          } else { 
+            categories[cat].sort((a,b) => a.nombre.localeCompare(b.nombre)).forEach(item => { 
+              const wrapper = document.createElement('div');
+              wrapper.className = 'mb-4 p-3 bg-gray-800/50 rounded-md';
+              const productNameDisplay = document.createElement('p');
+              productNameDisplay.textContent = item.nombre;
+              productNameDisplay.className = 'text-base font-medium mb-1 text-gray-200';
+              wrapper.appendChild(productNameDisplay);
+              const labelPrice = document.createElement('label');
+              labelPrice.htmlFor = `price-${item.firestoreId}`;
+              labelPrice.textContent = `Precio (actual: ${item.precio}):`;
+              wrapper.appendChild(labelPrice);
+              const inputPrice = document.createElement('input');
+              inputPrice.type = 'text';
+              inputPrice.id = `price-${item.firestoreId}`;
+              inputPrice.value = item.precio;
+              inputPrice.dataset.id = item.firestoreId; 
+              inputPrice.dataset.field = 'precio';
+              inputPrice.className = 'admin-input mt-0'; 
+              wrapper.appendChild(inputPrice);
+              const labelSold = document.createElement('label');
+              labelSold.className = 'flex items-center mt-3 cursor-pointer text-sm text-gray-300';
+              const inputSold = document.createElement('input');
+              inputSold.type = 'checkbox';
+              inputSold.checked = item.vendido;
+              inputSold.dataset.id = item.firestoreId; 
+              inputSold.dataset.field = 'vendido';
+              inputSold.className = 'mr-2 h-4 w-4 text-emerald-500 bg-gray-700 border-gray-600 rounded focus:ring-emerald-600 focus:ring-offset-gray-800';
+              labelSold.appendChild(inputSold);
+              labelSold.appendChild(document.createTextNode('Marcar como Vendido'));
+              wrapper.appendChild(labelSold);
+              adminFields.appendChild(wrapper);
+            });
+          }
+        });
+    }
+    
+    if (toggleAddProductFormBtn && addProductFormContainer && newProductCategorySelect) {
+      toggleAddProductFormBtn.addEventListener('click', () => {
+          addProductFormContainer.classList.toggle('hidden');
+          if (!addProductFormContainer.classList.contains('hidden')) {
+              populateCategorySelect(newProductCategorySelect); 
+              if (newProductForm) newProductForm.reset(); 
+              if (newProductCategoryInput) newProductCategoryInput.value = ''; 
+          }
+      });
+    }
+
+    if (newProductForm) {
+      newProductForm.addEventListener('submit', async (event) => {
+          event.preventDefault();
+          showLoading(true);
+          const name = document.getElementById('newProductName').value.trim();
+          const price = document.getElementById('newProductPrice').value.trim();
+          const imageUrl = document.getElementById('newProductImageURL').value.trim();
+          const facebookUrl = document.getElementById('newProductFacebookURL').value.trim();
+          
+          let categoryName = newProductCategoryInput.value.trim();
+          if (categoryName) { 
+              categoryName = categoryName.charAt(0).toUpperCase() + categoryName.slice(1);
+          } else { 
+              categoryName = newProductCategorySelect.value;
+          }
+
+          if (!name || !price || !imageUrl || !facebookUrl || !categoryName) {
+              showAlert("Por favor, complete todos los campos y seleccione o ingrese una categoría para el nuevo producto.");
+              showLoading(false);
+              return;
+          }
+
+          const internalId = `prod_${Date.now()}_${Math.random().toString(16).slice(2,8)}`; 
+          const newProduct = {
+              id: internalId, 
+              nombre: name,
+              precio: price,
+              img: imageUrl,
+              facebook_url: facebookUrl,
+              vendido: false,
+              category: categoryName, 
+              createdAt: serverTimestamp() 
+          };
+
+          try {
+            const docRef = await addDoc(collection(db, productsCollectionPath), newProduct);
+            console.log("New product added with Firestore ID: ", docRef.id);
+            showAlert("¡Producto agregado exitosamente!");
+            newProductForm.reset();
+            if(newProductCategoryInput) newProductCategoryInput.value = ''; 
+            if(addProductFormContainer) addProductFormContainer.classList.add('hidden');
+          } catch (e) {
+            console.error("Error adding new product to Firestore: ", e);
+            showAlert("Error al guardar el nuevo producto en la base de datos.");
+          } finally {
+            showLoading(false);
+          }
+      });
+    }
+
+    async function saveAdminChanges(event) {
+      event.preventDefault(); 
+      if (!adminFields || !allProducts.length) return; 
+      showLoading(true);
+      const inputs = adminFields.querySelectorAll('input[data-id]');
+      const batch = writeBatch(db);
+      let changesMade = 0;
+      
+      inputs.forEach(inp => {
+        const firestoreDocId = inp.dataset.id; 
+        const field = inp.dataset.field;
+        const originalProduct = allProducts.find(p => p.firestoreId === firestoreDocId);
+        if (!originalProduct) return;
+
+        const newValue = (field === 'vendido') ? inp.checked : inp.value;
+
+        if (originalProduct[field] !== newValue) {
+            const productRef = doc(db, productsCollectionPath, firestoreDocId);
+            batch.update(productRef, { [field]: newValue });
+            changesMade++;
+        }
+      });
+
+      if (changesMade > 0) {
+          try {
+            await batch.commit();
+            showAlert(`¡${changesMade} cambio(s) guardado(s) exitosamente!`);
+          } catch (e) {
+            console.error("Error saving changes to Firestore: ", e);
+            showAlert("Error al guardar cambios en la base de datos.");
+          }
+      } else {
+          showAlert('No se realizaron cambios.');
+      }
+      showLoading(false);
+    }
+
+    initializeAuthAndData(); 
+    
+    if (adminBtn) adminBtn.addEventListener('click', openAdminPanelWithPassword); 
+    if (closeAdminBtn) closeAdminBtn.addEventListener('click', closeAdminPanel);
+    if (adminForm) adminForm.addEventListener('submit', saveAdminChanges);
+    if (sortSelect) sortSelect.addEventListener('change', () => {
+      currentSortOption = sortSelect.value;
+      renderProducts(currentViewList);
+    });
+    
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') {
+        if (passwordModal && passwordModal.style.display === 'flex') passwordModal.style.display = 'none';
+        else if (adminPanel && adminPanel.classList.contains('flex')) closeAdminPanel();
+        else if (customAlert && customAlert.style.display === 'flex') customAlert.style.display = 'none';
+      }
+    });
+  </script>
+</body>
+</html>
